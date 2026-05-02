@@ -1,0 +1,3 @@
+/scripts/outputs
+*.pyc
+/scripts/.ipynb_checkpoints
