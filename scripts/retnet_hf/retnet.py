@@ -304,9 +304,8 @@ class RetNetDecoder(nn.Module):
         tokens,
         token_embedding=None,
         incremental_state=None,
-        incremental_state_wrapper=None,
     ):
-        if incremental_state is not None and not self.is_first_step(incremental_state_wrapper):
+        if incremental_state is not None and not self.is_first_step(incremental_state):
             tokens = tokens[:, -1:]
 
         if token_embedding is None:
@@ -321,16 +320,15 @@ class RetNetDecoder(nn.Module):
 
         return x, embed
 
-    def is_first_step(self, incremental_state_wrapper):
-        if incremental_state_wrapper is None:
+    def is_first_step(self, incremental_state):
+        if incremental_state is None:
             return False
-        return incremental_state_wrapper.get("is_first_step", False)
+        return incremental_state.get("is_first_step", False)
 
     def forward(
         self,
         prev_output_tokens,
         incremental_state=None,
-        incremental_state_wrapper = None,
         features_only=False,
         return_all_hiddens=False,
         token_embeddings=None,
@@ -338,9 +336,9 @@ class RetNetDecoder(nn.Module):
     ):
         # embed tokens
         x, _ = self.forward_embedding(
-            prev_output_tokens, token_embeddings, incremental_state,incremental_state_wrapper
+            prev_output_tokens, token_embeddings, incremental_state
         )
-        is_first_step = self.is_first_step(incremental_state_wrapper)
+        is_first_step = self.is_first_step(incremental_state)
 
         
         if self.chunkwise_recurrent and prev_output_tokens.size(1) % self.recurrent_chunk_size != 0:
@@ -357,14 +355,14 @@ class RetNetDecoder(nn.Module):
         l_aux = []
 
         for idx, layer in enumerate(self.layers):
-            """if incremental_state is None or is_first_step:
+            if incremental_state is None or is_first_step:
                 if is_first_step and incremental_state is not None:
                     if idx not in incremental_state:
                         incremental_state[idx] = {}
             else:
                 if idx not in incremental_state:
                     incremental_state[idx] = {}
-            """     
+                    
             x, l_aux_i = layer(
                 x,
                 incremental_state[idx] if incremental_state is not None else None,
