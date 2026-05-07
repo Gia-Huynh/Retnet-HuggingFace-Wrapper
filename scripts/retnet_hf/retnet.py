@@ -165,9 +165,9 @@ class DecoderLayer(nn.Module):
 
         x = self.retention(
             x,
-            incremental_state=incremental_state,
             rel_pos=retention_rel_pos,
             chunkwise_recurrent=chunkwise_recurrent,
+            incremental_state=incremental_state,
             idx = idx
         )
         x = self.dropout_module(x)
