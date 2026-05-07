@@ -116,7 +116,6 @@ class RetNetModel(RetNetPreTrainedModel):
         )
 
         incremental_state = past_key_values
-        incremental_state_wrapper = {"incremental_state": incremental_state}
         if use_cache and incremental_state is None:
             incremental_state = {"is_first_step": True}
         elif incremental_state is not None:
