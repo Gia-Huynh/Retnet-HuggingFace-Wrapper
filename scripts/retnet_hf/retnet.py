@@ -157,6 +157,7 @@ class DecoderLayer(nn.Module):
         incremental_state=None,
         chunkwise_recurrent=False,
         retention_rel_pos=None,
+        idx = None
     ):
         residual = x
         if self.normalize_before:
@@ -167,6 +168,7 @@ class DecoderLayer(nn.Module):
             incremental_state=incremental_state,
             rel_pos=retention_rel_pos,
             chunkwise_recurrent=chunkwise_recurrent,
+            idx = idx
         )
         x = self.dropout_module(x)
 
@@ -304,8 +306,9 @@ class RetNetDecoder(nn.Module):
         tokens,
         token_embedding=None,
         incremental_state=None,
+        is_first_step=False,
     ):
-        if incremental_state is not None and not self.is_first_step(incremental_state):
+        if incremental_state is not None and not is_first_step: #self.is_first_step(incremental_state):
             tokens = tokens[:, -1:]
 
         if token_embedding is None:
@@ -321,9 +324,13 @@ class RetNetDecoder(nn.Module):
         return x, embed
 
     def is_first_step(self, incremental_state):
+        print ("Uh oh this function was not supposed to be called, is_first_step")
         if incremental_state is None:
             return False
-        return incremental_state.get("is_first_step", False)
+        #return incremental_state.get("is_first_step", False)
+        return len(incremental_state) == 0 
+        #HuggingFace Dynamic Cache will not initialize any layer, so len = 0.
+        #https://github.com/huggingface/transformers/blob/da6c53e431f7c9ef0691239d4ce89b0f711ecad7/src/transformers/cache_utils.py#L1322
 
     def forward(
         self,
@@ -332,13 +339,14 @@ class RetNetDecoder(nn.Module):
         features_only=False,
         return_all_hiddens=False,
         token_embeddings=None,
+        is_first_step=False,
         **kwargs
     ):
         # embed tokens
         x, _ = self.forward_embedding(
-            prev_output_tokens, token_embeddings, incremental_state
+            prev_output_tokens, token_embeddings, incremental_state, is_first_step   #incremental_state can be kept as HF DynamicCache here because it's used only for "First step" checking.
         )
-        is_first_step = self.is_first_step(incremental_state)
+        #is_first_step = self.is_first_step(incremental_state) #incremental_state can be kept as HF DynamicCache here
 
         
         if self.chunkwise_recurrent and prev_output_tokens.size(1) % self.recurrent_chunk_size != 0:
@@ -358,16 +366,23 @@ class RetNetDecoder(nn.Module):
             if incremental_state is None or is_first_step:
                 if is_first_step and incremental_state is not None:
                     if idx not in incremental_state:
-                        incremental_state[idx] = {}
+                        #incremental_state[idx] = {}
+                        #incremental_state.update(key_states = torch.tensor([]).to(x.get_device()), value_states = torch.tensor([]).to(x.get_device()) , layer_idx = idx) #Should not do this cuz it would mess with is_first_step
+                                                                                            #Doesn't matter anyway, is_first_step already init.
+                        pass
             else:
                 if idx not in incremental_state:
-                    incremental_state[idx] = {}
+                    pass
+                    #incremental_state[idx] = {}
+                    #incremental_state.update(key_states = torch.tensor([]).to(x.get_device()) , value_states = torch.tensor([]).to(x.get_device()) , layer_idx = idx)
                     
             x, l_aux_i = layer(
                 x,
-                incremental_state[idx] if incremental_state is not None else None,
+                #incremental_state.layers[idx] if incremental_state is not None else None,
+                incremental_state if incremental_state is not None else None,
                 retention_rel_pos=retention_rel_pos,
                 chunkwise_recurrent=self.chunkwise_recurrent,
+                idx = idx
             )
             l_aux.append(l_aux_i)
             inner_states.append(x)

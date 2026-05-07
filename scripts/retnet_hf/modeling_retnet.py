@@ -98,6 +98,7 @@ class RetNetModel(RetNetPreTrainedModel):
         use_cache: bool | None = None,
         output_hidden_states: bool | None = None,
         return_dict: bool | None = None,
+        is_first_step: bool | None = False,
         **kwargs,
     ):
         if input_ids is None and inputs_embeds is None:
@@ -117,9 +118,11 @@ class RetNetModel(RetNetPreTrainedModel):
 
         incremental_state = past_key_values
         if use_cache and incremental_state is None:
-            incremental_state = {"is_first_step": True}
+            #incremental_state = {"is_first_step": True}
+            is_first_step = True
         elif incremental_state is not None:
-            incremental_state["is_first_step"] = False
+            #incremental_state["is_first_step"] = False
+            is_first_step = False
 
         logits_or_hidden, extra = self.decoder(
             prev_output_tokens=input_ids,
@@ -127,11 +130,13 @@ class RetNetModel(RetNetPreTrainedModel):
             features_only=True,
             return_all_hiddens=output_hidden_states,
             token_embeddings=inputs_embeds,
+            is_first_step = is_first_step,
             **kwargs,
         )
 
         if use_cache and incremental_state is not None:
-            incremental_state["is_first_step"] = False
+            #incremental_state["is_first_step"] = False
+            is_first_step = False
 
         hidden_states = tuple(extra["inner_states"]) if output_hidden_states else None
         output = RetNetModelOutputWithPast(
