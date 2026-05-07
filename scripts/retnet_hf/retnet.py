@@ -346,8 +346,6 @@ class RetNetDecoder(nn.Module):
         x, _ = self.forward_embedding(
             prev_output_tokens, token_embeddings, incremental_state, is_first_step   #incremental_state can be kept as HF DynamicCache here because it's used only for "First step" checking.
         )
-        #is_first_step = self.is_first_step(incremental_state) #incremental_state can be kept as HF DynamicCache here
-
         
         if self.chunkwise_recurrent and prev_output_tokens.size(1) % self.recurrent_chunk_size != 0:
             padding_len = self.recurrent_chunk_size - prev_output_tokens.size(1) % self.recurrent_chunk_size
@@ -363,23 +361,9 @@ class RetNetDecoder(nn.Module):
         l_aux = []
 
         for idx, layer in enumerate(self.layers):
-            if incremental_state is None or is_first_step:
-                if is_first_step and incremental_state is not None:
-                    if idx not in incremental_state:
-                        #incremental_state[idx] = {}
-                        #incremental_state.update(key_states = torch.tensor([]).to(x.get_device()), value_states = torch.tensor([]).to(x.get_device()) , layer_idx = idx) #Should not do this cuz it would mess with is_first_step
-                                                                                            #Doesn't matter anyway, is_first_step already init.
-                        pass
-            else:
-                if idx not in incremental_state:
-                    pass
-                    #incremental_state[idx] = {}
-                    #incremental_state.update(key_states = torch.tensor([]).to(x.get_device()) , value_states = torch.tensor([]).to(x.get_device()) , layer_idx = idx)
-                    
             x, l_aux_i = layer(
                 x,
-                #incremental_state.layers[idx] if incremental_state is not None else None,
-                incremental_state if incremental_state is not None else None,
+                incremental_state,
                 retention_rel_pos=retention_rel_pos,
                 chunkwise_recurrent=self.chunkwise_recurrent,
                 idx = idx
