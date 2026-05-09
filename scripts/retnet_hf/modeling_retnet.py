@@ -148,19 +148,30 @@ class RetNetModel(RetNetPreTrainedModel):
 class RetNetForCausalLM(RetNetPreTrainedModel, GenerationMixin):
     #_tied_weights_keys = ["model.decoder.output_projection.weight"]
     #_tied_weights_keys = None
-    _tied_weights_keys = {
         #"lm_head.weight","model.decoder.output_projection.weight",
         #"model.decoder.embed_tokens.weight","model.embed_tokens.weight",
-    "model.decoder.embed_tokens.weight": "model.embed_tokens.weight",
+    _tied_weights_keys = {
+        "model.decoder.embed_tokens.weight": "model.embed_tokens.weight",
+        "model.decoder.output_projection.weight":"model.embed_tokens.weight",
+        "lm_head.weight" : "model.decoder.output_projection.weight",
+    }
+    all_tied_weights_keys = {
+        "model.decoder.embed_tokens.weight": "model.embed_tokens.weight",
         "model.decoder.output_projection.weight":"model.embed_tokens.weight",
         "lm_head.weight" : "model.decoder.output_projection.weight",
     }
     def __init__(self, config: RetNetConfig):
         super().__init__(config)
         self.model = RetNetModel(config)
+        #Testing testing
+        self.model.decoder.output_projection.weight = self.model.embed_tokens.weight
+        self.model.decoder.embed_tokens.weight = self.model.embed_tokens.weight #.weight
+
         # Reuse the decoder's language modeling head directly.
         self.lm_head = self.model.decoder.output_projection
-
+        
+        #print ("LM_HEAD weight:", self.lm_head.weight)
+        #print ("model.decoder.output_projection weight:", self.model.decoder.output_projection.weight)
     def get_input_embeddings(self):
         return self.model.get_input_embeddings()
 
@@ -177,6 +188,7 @@ class RetNetForCausalLM(RetNetPreTrainedModel, GenerationMixin):
         self.lm_head = new_embeddings
 
     def tie_weights(self):
+        #print ("TIE_WEIGHTS")
         super().tie_weights()
         self.lm_head = self.model.decoder.output_projection
 
