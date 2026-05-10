@@ -219,9 +219,7 @@ class MultiScaleRetention(nn.Module):
         if temp_first_run == False:
             prev_kv, prev_scale = torch.clone(incremental_state.layers[idx].keys).detach(), torch.clone(incremental_state.layers[idx].values).detach()
             if len(prev_scale.shape) > 1:     
-                #print ("prev_scale extracted shape:", prev_scale.shape)                
                 prev_scale = prev_scale[0,:,0,0].squeeze()
-                #print ("prev_scale after modification's shape (should be [8]):", prev_scale.shape)
             try:
                 if prev_kv.shape[2]%prev_kv.shape[3]!=0:
                     print ("Uh oh, wtf is going on, prev_kv.shape[2]%prev_kv.shape[3]!=0")
@@ -230,37 +228,28 @@ class MultiScaleRetention(nn.Module):
             except IndexError:
                 print ("IndexError, Are we doing DynamicCache?")
                 prev_kv = prev_kv[:,:,-prev_kv.shape[-1]:,:] #Dynamic Cache ([1, 8, 256, 128]) to ([1, 8, 128, 128]), no-op if StaticCache
-                                                            #prev_kv = prev_kv.permute(dims=[0,2,1,3])[:,-prev_scale.shape[0]:,:,:]
-            #print ("prev_kv extracted shape:", prev_kv.shape)
             scale = prev_scale * decay.squeeze() + 1
-            #print ("NAN CHECKING for prev_kv (after messing around): ", torch.isnan(prev_kv).any())
             #kv = prev_kv * (prev_scale.sqrt() * decay / scale.sqrt()).view(self.num_heads, 1, 1) + kv / scale.sqrt().view(self.num_heads, 1, 1)
-            kv = prev_kv * scale.reshape(1, self.num_heads, 1, 1, 1) + kv
+            #kv = prev_kv * scale.reshape(1, self.num_heads, 1, 1, 1) + kv
+            
+            decay_factor = (prev_scale.sqrt() * decay.squeeze() / scale.sqrt()).reshape(1, self.num_heads, 1, 1, 1)
+            norm_factor = (1.0 / scale.sqrt()).reshape(1, self.num_heads, 1, 1, 1)
+
+            kv = prev_kv * decay_factor + kv * norm_factor
+
         else:
             scale = torch.ones_like(decay) #If first run
 
-        #print ("scale.shape: ", scale.shape)
         scale_padded = scale[None,:,None,None].repeat(1,1,kv.shape[2]*kv.shape[3],kv.shape[4]) #DEBUGGING, repeat instead of expand.
-        #print ("scale_padded shape (Result): ", scale_padded.shape)
-        #print ("kv Result: ", kv.shape)
         kv_incremental_vector = kv.reshape (kv.shape[0], kv.shape[1], kv.shape[2]*kv.shape[3], kv.shape[4])
-        #print ("kv_incremental_vector (Result): ", kv_incremental_vector.shape)
-        #print ("NAN CHECKING for qr (before cache update): ", torch.isnan(qr).any())
-        #print ("shape of kv_incremental_vector: ", torch.clone(kv_incremental_vector).detach().shape)
-        #print ("shape of scale_padded (check previous cache shape): ", torch.clone(scale_padded).detach().shape)
         
         if temp_first_run == False:
             incremental_state.layers[idx].keys = torch.clone(kv_incremental_vector).detach()
             incremental_state.layers[idx].values = torch.clone(scale_padded).detach()
         else:
             incremental_state.update(key_states = torch.clone(kv_incremental_vector).detach(), value_states = torch.clone(scale_padded).detach(), layer_idx = idx)
-        #print ("NAN CHECKING for kv: ", torch.isnan(kv).any())
         output = torch.sum(qr.unsqueeze(-1) * kv, dim=-2)
-        #print ("cache.keys.shape (frfrfr): ", incremental_state.layers[idx].keys.shape)
-        #print ("cache.values.shape (frfrfr): ", incremental_state.layers[idx].values.shape)
-        #print ("Output Shape:", output.shape)
-        #if temp_first_run == False:
-        #    STOP
+        
         return output
         
     def chunk_recurrent_forward(
