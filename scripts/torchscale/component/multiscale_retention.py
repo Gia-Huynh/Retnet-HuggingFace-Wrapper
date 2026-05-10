@@ -201,10 +201,8 @@ class MultiScaleRetention(nn.Module):
         incremental_state,
         idx
     ):
-        #print ("Beginning of run")
         bsz = v.size(0) #Batchsize
         v = v.reshape(kr.shape) #bsz, self.num_heads, self.head_dim, v.shape[1])
-        #print ("Sanity check: q, k, v, their shape should be (bsz, num_head, len, qkv_dim):", qr.shape, kr.shape, v.shape, " (v was converted)")
         kv = kr.unsqueeze(-1) * v.unsqueeze(-2)
     
         #Check if first run
