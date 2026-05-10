@@ -30,13 +30,11 @@ class RetNetRelPos(nn.Module):
         self.recurrent_chunk_size = args.recurrent_chunk_size
         
     def forward(self, slen, activate_recurrent=False, chunkwise_recurrent=False):
-        if activate_recurrent:
-            print ("Yes, activate_recurrent")
+        if activate_recurrent:  #Only run on FIRST recurrent output
             sin = torch.sin(self.angle * (slen - 1))
             cos = torch.cos(self.angle * (slen - 1))
             retention_rel_pos = ((sin, cos), self.decay.exp())
         elif chunkwise_recurrent:
-            print ("chunkwise_recurrent")
             index = torch.arange(slen).to(self.decay)
             sin = torch.sin(index[:, None] * self.angle[None, :])
             cos = torch.cos(index[:, None] * self.angle[None, :])
@@ -57,8 +55,7 @@ class RetNetRelPos(nn.Module):
             query_inner_decay = query_inner_decay[:, :, None] / (scale / mask[:, -1].sum(dim=-1)[:, None, None])
             cross_decay = cross_decay[:, None, None]
             retention_rel_pos = ((sin, cos), (inner_mask, cross_decay, query_inner_decay, value_inner_decay))
-        else:
-            print ("No, not activate_recurrent")
+        else: #Only run on subsequent recurrent output
             index = torch.arange(slen).to(self.decay)
             sin = torch.sin(index[:, None] * self.angle[None, :])
             cos = torch.cos(index[:, None] * self.angle[None, :])
@@ -312,19 +309,19 @@ class RetNetDecoder(nn.Module):
         is_first_step=False,
     ):
         if incremental_state is not None and not is_first_step: #self.is_first_step(incremental_state):
-            print ("AYYYY Skip the embedding")
+            #print ("AYYYY Skip the embedding")
             tokens = tokens[:, -1:]
         if token_embedding is None:
-            print("token_embedding is None")
+            #print("token_embedding is None")
             token_embedding = self.embed_tokens(tokens)
-        print ("Doing the embedding then, token_embedding.shape=",token_embedding.shape)
+        #print ("Doing the embedding then, token_embedding.shape=",token_embedding.shape)
         x = embed = self.embed_scale * token_embedding
-        print ("self.embed_scale * token_embedding, embed.shape=",x.shape)
+        #print ("self.embed_scale * token_embedding, embed.shape=",x.shape)
         if self.layernorm_embedding is not None:
             x = self.layernorm_embedding(x)
-        print ("x.shape=",x.shape)
+        #print ("x.shape=",x.shape)
         x = self.dropout_module(x)
-        print ("x.shape=",x.shape)
+        #print ("x.shape=",x.shape)
         return x, embed #embed is not used later at all
 
     def is_first_step(self, incremental_state):
