@@ -117,9 +117,14 @@ class RetNetModel(RetNetPreTrainedModel):
         )
 
         incremental_state = past_key_values
-        if use_cache and incremental_state is None:
+        #if use_cache and incremental_state is None:
+        if use_cache and ((incremental_state is None) 
+                            or (len(past_key_values.layers )==0)
+                            or (all(not layer.is_initialized for layer in past_key_values.layers))):
+            print ("YAY IT'S THE FIRST STEP")
             is_first_step = True
         else:
+            print ("NAY IT'S NOT THE FIRST STEP")
             is_first_step = False
 
         logits_or_hidden, extra = self.decoder(

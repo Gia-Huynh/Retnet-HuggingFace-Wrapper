@@ -132,59 +132,58 @@ class MultiScaleRetention(nn.Module):
         idx
     ):
         print ("Beginning of run")
-        print ("decay shape should be (num_head, 1, 1):", decay.shape)
         bsz = v.size(0) #Batchsize
-        v = v.view(kr.shape) #bsz, self.num_heads, self.head_dim, v.shape[1])
-        print ("Sanity check: q, k, v, their shape should be (bsz, num_head, len, qkv_dim):", qr.shape, kr.shape, v.shape)
-        
-        kv = k.unsqueez(-1) * v.unsqueeze(-2)
-        print ("kv.shape: ", kv.shape)
-        
+        v = v.reshape(kr.shape) #bsz, self.num_heads, self.head_dim, v.shape[1])
+        #print ("Sanity check: q, k, v, their shape should be (bsz, num_head, len, qkv_dim):", qr.shape, kr.shape, v.shape, " (v was converted)")
+        kv = kr.unsqueeze(-1) * v.unsqueeze(-2)
+    
         #Check if first run
         try:
             layer = incremental_state.layers[idx]
             temp_first_run = False
-            if layer.keys is None or layer.values is None:
+            if (layer.keys is None or layer.values is None) or (layer.is_initialized==False):
                 temp_first_run = True
         except Exception as e:
             temp_first_run = True
-            
-        if (incremental_state is None) 
-            or (len(past_key_values.layers )==0)
-            or (all(not layer.is_initialized for layer in past_key_values.layers)):
-                temp_first_run = True
-        else:
-            
-                temp_first_run = False
-            
+        
         if temp_first_run == False:
             prev_kv, prev_scale = incremental_state.layers[idx].keys, incremental_state.layers[idx].values
-            #prev_scale = prev_scale.squeeze()
-            if len(prev_scale.shape) > 1:
-                #prev_scale = prev_scale[:,-1]
-                print ("prev_scale extracted shape:", prev_scale.shape)
+            if len(prev_scale.shape) > 1:     
+                #print ("prev_scale extracted shape:", prev_scale.shape)                
                 prev_scale = prev_scale[0,:,0,0].squeeze()
-                print ("prev_scale after modification's shape (should be [8]):", prev_scale.shape)
+                #print ("prev_scale after modification's shape (should be [8]):", prev_scale.shape)
+            try:
+                if prev_kv.shape[2]%prev_kv.shape[3]!=0:
+                    print ("Uh oh, wtf is going on, prev_kv.shape[2]%prev_kv.shape[3]!=0")
+                    print ("prev_kv shape:", prev_kv.shape)
+                prev_kv = prev_kv.reshape(prev_kv.shape[0], prev_kv.shape[1], prev_kv.shape[2]//prev_kv.shape[3], prev_kv.shape[3], prev_kv.shape[3])[:,:,-1,:,:][:,:,None,:,:]
+            except IndexError:
+                print ("IndexError, Are we doing DynamicCache?")
+                prev_kv = prev_kv[:,:,-prev_kv.shape[-1]:,:] #Dynamic Cache ([1, 8, 256, 128]) to ([1, 8, 128, 128]), no-op if StaticCache
+                                                            #prev_kv = prev_kv.permute(dims=[0,2,1,3])[:,-prev_scale.shape[0]:,:,:]
             print ("prev_kv extracted shape:", prev_kv.shape)
-            prev_kv = prev_kv[:,:,-prev_kv.shape[-1]:,:] #Dynamic Cache ([1, 8, 256, 128]) to ([1, 8, 128, 128]), no-op if StaticCache
-            #prev_kv = prev_kv.permute(dims=[0,2,1,3])[:,-prev_scale.shape[0]:,:,:]
-            scale = prev_scale * decay + 1
-            kv = prev_kv * (prev_scale.sqrt() * decay / scale.sqrt()).view(self.num_heads, 1, 1) + kv / scale.sqrt().view(self.num_heads, 1, 1)
-            # kv = prev_kv * decay.view(self.num_heads, 1, 1) + kv
+            scale = prev_scale * decay.squeeze() + 1
+            print ("NAN CHECKING for prev_kv (after messing around): ", torch.isnan(prev_kv).any())
+            #kv = prev_kv * (prev_scale.sqrt() * decay / scale.sqrt()).view(self.num_heads, 1, 1) + kv / scale.sqrt().view(self.num_heads, 1, 1)
+            kv = prev_kv * scale.reshape(1, self.num_heads, 1, 1, 1) + kv
         else:
             scale = torch.ones_like(decay) #If first run
 
         print ("scale.shape: ", scale.shape)
-        scale_padded = torch.clone(scale[None,:,None,None].repeat(1,1,kv.shape[2],kv.shape[3])) #.repeat(kv.shape[2], axis = 2).repeat(kv.shape[3], axis = 3)
+        scale_padded = scale[None,:,None,None].repeat(1,1,kv.shape[2]*kv.shape[3],kv.shape[4]) #DEBUGGING, repeat instead of expand.
+        #scale_padded = scale[None,:,None,None].expand(1,-1,kv.shape[2]*kv.shape[3],kv.shape[4])
         print ("scale_padded shape (Result): ", scale_padded.shape)
-        kv_incremental_vector = kv #.permute(dims=[0,2,1,3])
+        print ("kv Result: ", kv.shape)
+        kv_incremental_vector = kv.reshape (kv.shape[0], kv.shape[1], kv.shape[2]*kv.shape[3], kv.shape[4])
         print ("kv_incremental_vector (Result): ", kv_incremental_vector.shape)
-        incremental_state.update(key_states = kv_incremental_vector, value_states = scale_padded, layer_idx = idx)
-        output = torch.sum(qr * kv, dim=3)
-        print ("cache.keys.shape: ", incremental_state.layers[idx].keys.shape)
-        print ("cache.values.shape: ", incremental_state.layers[idx].values.shape)
-        print ("Updated sucessfully")
-        print ("Output Type:", type(output))
+        print ("NAN CHECKING for qr (before cache update): ", torch.isnan(qr).any())
+        print ("shape of kv_incremental_vector: ", torch.clone(kv_incremental_vector).detach().shape)
+        print ("shape of scale_padded (check previous cache shape): ", torch.clone(scale_padded).detach().shape)
+        incremental_state.update(key_states = torch.clone(kv_incremental_vector).detach(), value_states = torch.clone(scale_padded).detach(), layer_idx = idx)
+        print ("NAN CHECKING for kv: ", torch.isnan(kv).any())
+        output = torch.sum(qr.unsqueeze(-1) * kv, dim=-2)
+        print ("cache.keys.shape (frfrfr): ", incremental_state.layers[idx].keys.shape)
+        print ("cache.values.shape (frfrfr): ", incremental_state.layers[idx].values.shape)
         print ("Output Shape:", output.shape)
         #if temp_first_run == False:
         #    STOP
@@ -264,7 +263,7 @@ class MultiScaleRetention(nn.Module):
 
         qr = theta_shift(q, sin, cos)
         kr = theta_shift(k, sin, cos)
-
+        
         if incremental_state is not None: #Could exist but be empty, for example.
             output = self.recurrent_forward(qr, kr, v, inner_mask, incremental_state, idx)
         elif chunkwise_recurrent:

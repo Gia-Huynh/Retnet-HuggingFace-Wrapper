@@ -24,17 +24,19 @@ class RetNetRelPos(nn.Module):
         super().__init__()
         angle = 1.0 / (10000 ** torch.linspace(0, 1, args.decoder_embed_dim // args.decoder_retention_heads // 2))
         angle = angle.unsqueeze(-1).repeat(1, 2).flatten()
-        decay = torch.log(1 - 2 ** (-5 - torch.arange(args.decoder_retention_heads, dtype=torch.float)))
+        decay = torch.log(1 - 2 ** (-5 - torch.arange(args.decoder_retention_heads, dtype=torch.float))) #a 1D array of size [decoder_retention_heads]
         self.register_buffer("angle", angle)
         self.register_buffer("decay", decay)
         self.recurrent_chunk_size = args.recurrent_chunk_size
         
     def forward(self, slen, activate_recurrent=False, chunkwise_recurrent=False):
         if activate_recurrent:
+            print ("Yes, activate_recurrent")
             sin = torch.sin(self.angle * (slen - 1))
             cos = torch.cos(self.angle * (slen - 1))
             retention_rel_pos = ((sin, cos), self.decay.exp())
         elif chunkwise_recurrent:
+            print ("chunkwise_recurrent")
             index = torch.arange(slen).to(self.decay)
             sin = torch.sin(index[:, None] * self.angle[None, :])
             cos = torch.cos(index[:, None] * self.angle[None, :])
@@ -56,6 +58,7 @@ class RetNetRelPos(nn.Module):
             cross_decay = cross_decay[:, None, None]
             retention_rel_pos = ((sin, cos), (inner_mask, cross_decay, query_inner_decay, value_inner_decay))
         else:
+            print ("No, not activate_recurrent")
             index = torch.arange(slen).to(self.decay)
             sin = torch.sin(index[:, None] * self.angle[None, :])
             cos = torch.cos(index[:, None] * self.angle[None, :])
@@ -309,19 +312,20 @@ class RetNetDecoder(nn.Module):
         is_first_step=False,
     ):
         if incremental_state is not None and not is_first_step: #self.is_first_step(incremental_state):
+            print ("AYYYY Skip the embedding")
             tokens = tokens[:, -1:]
-
         if token_embedding is None:
+            print("token_embedding is None")
             token_embedding = self.embed_tokens(tokens)
-
+        print ("Doing the embedding then, token_embedding.shape=",token_embedding.shape)
         x = embed = self.embed_scale * token_embedding
-
+        print ("self.embed_scale * token_embedding, embed.shape=",x.shape)
         if self.layernorm_embedding is not None:
             x = self.layernorm_embedding(x)
-
+        print ("x.shape=",x.shape)
         x = self.dropout_module(x)
-
-        return x, embed
+        print ("x.shape=",x.shape)
+        return x, embed #embed is not used later at all
 
     def is_first_step(self, incremental_state):
         print ("Uh oh this function was not supposed to be called, is_first_step")
@@ -354,7 +358,7 @@ class RetNetDecoder(nn.Module):
         else:
             slen = prev_output_tokens.size(1)
         # relative position
-        retention_rel_pos = self.retnet_rel_pos(slen, incremental_state is not None and not is_first_step, chunkwise_recurrent=self.chunkwise_recurrent)
+        retention_rel_pos = self.retnet_rel_pos(slen, incremental_state is not None and is_first_step, chunkwise_recurrent=self.chunkwise_recurrent) #
         # decoder layers
         inner_states = [x]
 
