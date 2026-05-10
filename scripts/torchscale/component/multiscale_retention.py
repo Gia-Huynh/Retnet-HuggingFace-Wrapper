@@ -86,7 +86,7 @@ class MultiScaleRetention(nn.Module):
         output = output.transpose(1, 2)
         return output
 
-    def recurrent_forward(
+    def recurrent_forward_backup(
         self,
         qr, kr, v,
         decay,
@@ -124,6 +124,71 @@ class MultiScaleRetention(nn.Module):
         output = torch.sum(qr * kv, dim=3)
         return output
     
+    def recurrent_forward(
+        self,
+        qr, kr, v,
+        decay,
+        incremental_state,
+        idx
+    ):
+        print ("Beginning of run")
+        print ("decay shape should be (num_head, 1, 1):", decay.shape)
+        bsz = v.size(0) #Batchsize
+        v = v.view(kr.shape) #bsz, self.num_heads, self.head_dim, v.shape[1])
+        print ("Sanity check: q, k, v, their shape should be (bsz, num_head, len, qkv_dim):", qr.shape, kr.shape, v.shape)
+        
+        kv = k.unsqueez(-1) * v.unsqueeze(-2)
+        print ("kv.shape: ", kv.shape)
+        
+        #Check if first run
+        try:
+            layer = incremental_state.layers[idx]
+            temp_first_run = False
+            if layer.keys is None or layer.values is None:
+                temp_first_run = True
+        except Exception as e:
+            temp_first_run = True
+            
+        if (incremental_state is None) 
+            or (len(past_key_values.layers )==0)
+            or (all(not layer.is_initialized for layer in past_key_values.layers)):
+                temp_first_run = True
+        else:
+            
+                temp_first_run = False
+            
+        if temp_first_run == False:
+            prev_kv, prev_scale = incremental_state.layers[idx].keys, incremental_state.layers[idx].values
+            #prev_scale = prev_scale.squeeze()
+            if len(prev_scale.shape) > 1:
+                #prev_scale = prev_scale[:,-1]
+                print ("prev_scale extracted shape:", prev_scale.shape)
+                prev_scale = prev_scale[0,:,0,0].squeeze()
+                print ("prev_scale after modification's shape (should be [8]):", prev_scale.shape)
+            print ("prev_kv extracted shape:", prev_kv.shape)
+            prev_kv = prev_kv[:,:,-prev_kv.shape[-1]:,:] #Dynamic Cache ([1, 8, 256, 128]) to ([1, 8, 128, 128]), no-op if StaticCache
+            #prev_kv = prev_kv.permute(dims=[0,2,1,3])[:,-prev_scale.shape[0]:,:,:]
+            scale = prev_scale * decay + 1
+            kv = prev_kv * (prev_scale.sqrt() * decay / scale.sqrt()).view(self.num_heads, 1, 1) + kv / scale.sqrt().view(self.num_heads, 1, 1)
+            # kv = prev_kv * decay.view(self.num_heads, 1, 1) + kv
+        else:
+            scale = torch.ones_like(decay) #If first run
+
+        print ("scale.shape: ", scale.shape)
+        scale_padded = torch.clone(scale[None,:,None,None].repeat(1,1,kv.shape[2],kv.shape[3])) #.repeat(kv.shape[2], axis = 2).repeat(kv.shape[3], axis = 3)
+        print ("scale_padded shape (Result): ", scale_padded.shape)
+        kv_incremental_vector = kv #.permute(dims=[0,2,1,3])
+        print ("kv_incremental_vector (Result): ", kv_incremental_vector.shape)
+        incremental_state.update(key_states = kv_incremental_vector, value_states = scale_padded, layer_idx = idx)
+        output = torch.sum(qr * kv, dim=3)
+        print ("cache.keys.shape: ", incremental_state.layers[idx].keys.shape)
+        print ("cache.values.shape: ", incremental_state.layers[idx].values.shape)
+        print ("Updated sucessfully")
+        print ("Output Type:", type(output))
+        print ("Output Shape:", output.shape)
+        #if temp_first_run == False:
+        #    STOP
+        return output
     def chunk_recurrent_forward(
         self,
         qr, kr, v,
